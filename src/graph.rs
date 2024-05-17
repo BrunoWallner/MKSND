@@ -27,11 +27,11 @@ impl<Message> canvas::Program<Message> for Graph {
         let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
             let mut offset = frame.center();
             offset.x -= frame.size().width / 2.0;
-            offset.y -= frame.size().height / 2.0;
+            // offset.y -= frame.size().height / 2.0;
             let mut x = 0.0;
             for i in 0..self.points.len() - 1 {
-                let start = self.points[i] * self.scale;
-                let end = self.points[i + 1] * self.scale;
+                let start = -self.points[i] * self.scale;
+                let end = -self.points[i + 1] * self.scale;
 
                 let x1 = x * frame.width() + offset.x;
                 let y1 = start * frame.height() + offset.y;

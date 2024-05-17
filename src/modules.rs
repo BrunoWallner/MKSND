@@ -21,6 +21,7 @@ pub enum ModuleMessage {
     Editor(Action),
     AddModule,
     AddModuleInput(String),
+    RunModule,
 }
 
 pub struct Modules {
@@ -29,6 +30,7 @@ pub struct Modules {
     module_add_text: String,
     modules: HashMap<String, String>,
     files: Menu<Message, String>,
+    executor: Result<bs::executor::Executor, String>,
 }
 impl Modules {
     pub fn new(path: PathBuf) -> Self {
@@ -40,9 +42,12 @@ impl Modules {
             modules: HashMap::default(),
             module_add_text: String::new(),
             path,
-            files: Menu::new(Vec::new(), |module| {
-                Message::Editor(ModuleMessage::SelectModule(module))
-            }, menu::Flow::Vertical),
+            files: Menu::new(
+                Vec::new(),
+                |module| Message::Editor(ModuleMessage::SelectModule(module)),
+                menu::Flow::Vertical,
+            ),
+            executor: Err(String::new()),
         };
         modules.load_modules().unwrap();
         modules.files.set_elements(modules.get_file_elements());
@@ -176,7 +181,70 @@ impl Modules {
             ModuleMessage::RemoveModule(_module) => {
                 // self.module_nav_model.remove(entity);
             }
+            ModuleMessage::RunModule => {
+                let module = self.content.text();
+                let tokens = bs::lexer::tokenize(&module);
+                let ast = match bs::parser::parse(tokens) {
+                    Ok(a) => bs::parser::Ast::new(a),
+                    Err(e) => {
+                        let e = e.format_with(&module, "parse error", false);
+                        self.executor = Err(e);
+                        return;
+                    }
+                };
+                let executor = match bs::executor::Executor::build(ast) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        let e = e.format_with(&module, "parse error", false);
+                        self.executor = Err(e);
+                        return;
+                    }
+                };
+
+                self.executor = Ok(executor);
+            }
         };
+    }
+
+    fn output<'a>(&'a self) -> Element<'a, Message> {
+        let inner: Element<'_, _> = match &self.executor {
+            Ok(e) => {
+                // let points = (0..100)
+                //     .into_iter()
+                //     .map(|x| (x as f32 * 0.5).sin() + 1.0)
+                //     .collect();
+                let points = (0..100)
+                    .into_iter()
+                    .map(|x| {
+                        let input = x as f64 / 100.0;
+                        match e.execute("main", vec![&input]) {
+                            Ok(value) => match value {
+                                Some(v) => match v {
+                                    bs::data::Value::Data(d) => match d {
+                                        bs::data::DataType::Float(f) => f as f32,
+                                        _ => 0.0
+                                    },
+                                    _ => 0.0,
+                                },
+                                None => 0.0,
+                            },
+                            Err(_) => 0.0,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let graph = graph::Graph::new(points).scale(0.5);
+
+                graph.into()
+            }
+            Err(msg) => widget::text(msg).into(),
+        };
+
+        let inner = widget::container(inner)
+            .height(iced::Length::FillPortion(1))
+            .width(iced::Length::Fill)
+            .style(iced::theme::Container::Box);
+
+        inner.into()
     }
 
     fn text_editor<'a>(&'a self) -> Element<'a, Message> {
@@ -187,18 +255,10 @@ impl Modules {
             text = text.on_action(|a| Message::Editor(ModuleMessage::Editor(a)));
         }
         let text = widget::container(text).height(iced::Length::FillPortion(2));
+        let output = self.output();
 
-        let points = (0..100)
-            .into_iter()
-            .map(|x| (x as f32 * 0.5).sin() + 1.0)
-            .collect();
-        let graph = graph::Graph::new(points).scale(0.5);
-        let graph = widget::container(graph)
-            .height(iced::Length::FillPortion(1))
-            .width(iced::Length::Fill);
-
-        let content = widget::Column::with_children([text.into(), graph.into()])
-            .spacing(iced::Pixels::from(5.0));
+        let content =
+            widget::Column::with_children([text.into(), output]).spacing(iced::Pixels::from(5.0));
         // let content = text;
 
         let centered = widget::container(content)
@@ -214,7 +274,7 @@ impl Modules {
             .on_input(|input| Message::Editor(ModuleMessage::AddModuleInput(input)))
             .on_submit(Message::Editor(ModuleMessage::AddModule));
 
-        let save = widget::button(widget::text("save"))
+        let save = widget::button(widget::text("SAVE"))
             .on_press(Message::Editor(ModuleMessage::Save))
             .width(iced::Length::Fill);
         let save = widget::container(save)
@@ -225,8 +285,13 @@ impl Modules {
 
         let files = self.files.clone();
 
+        let run = widget::button(widget::text("RUN"))
+            .on_press(Message::Editor(ModuleMessage::RunModule))
+            .width(iced::Length::Fill);
+
         // let content = widget::list_column().add(save).add(add_module).add(files);
         let content = widget::column([
+            run.into(),
             save.into(),
             add_module.into(),
             widget::vertical_space()

@@ -1,0 +1,8 @@
+fn main(input: Num) -> Num {
+  let median = sin (input * 3.1416);
+  let output = sin(input * 20.0) * sin( (input + 1.0) * 10.0) + sin( (input + 12.3) * 50.0 );
+
+  output = output + (median * median * sin( input + (median * 100.0) ));
+
+  return output * 0.4;
+}
