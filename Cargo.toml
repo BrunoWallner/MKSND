@@ -1,0 +1,12 @@
+[package]
+name = "mksnd"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+bs = { git = "https://github.com/BrunoWallner/BullScript" }
+
+[dependencies.iced]
+version =  "0.12.1"
+features = ["tokio", "advanced", "canvas"]
