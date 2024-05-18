@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
+use std::ops::Range;
 use std::path::PathBuf;
 
+use crate::audio;
 use crate::widgets::{self, menu};
 use crate::{graph, widgets::Menu, Message};
 use iced::widget;
@@ -21,7 +23,8 @@ pub enum ModuleMessage {
     Editor(Action),
     AddModule,
     AddModuleInput(String),
-    RunModule,
+    CompileModule,
+    TestModule,
 }
 
 pub struct Modules {
@@ -181,7 +184,7 @@ impl Modules {
             ModuleMessage::RemoveModule(_module) => {
                 // self.module_nav_model.remove(entity);
             }
-            ModuleMessage::RunModule => {
+            ModuleMessage::CompileModule => {
                 let module = self.content.text();
                 let tokens = bs::lexer::tokenize(&module);
                 let ast = match bs::parser::parse(tokens) {
@@ -203,35 +206,44 @@ impl Modules {
 
                 self.executor = Ok(executor);
             }
+            ModuleMessage::TestModule => {
+                let Ok(samples) = self.get_points(0..48_000, 0.0001) else {return};
+                // let samples = (0..48_000).map(|x| (x as f32 * 0.005).sin()).collect();
+                audio::get().unwrap().play_mono(samples);
+            },
         };
     }
 
+    fn get_points(&self, range: Range<usize>, scale: f64) -> Result<Vec<f32>, String> {
+        // let Ok(e) = &self.executor else { return Err };
+        let e = match &self.executor {
+            Ok(e) => e,
+            Err(e) => return Err(e.clone()),
+        };
+        let mut points = Vec::new();
+        for i in range {
+            let input = i as f64 * scale;
+            match e.execute("main", vec![&input]) {
+                Ok(value) => match value {
+                    Some(v) => match v {
+                        bs::data::Value::Data(d) => match d {
+                            bs::data::DataType::Float(f) => points.push(f as f32),
+                            _ => return Err("invalid return data".into()),
+                        },
+                        _ => return Err("invalid return data".into()),
+                    },
+                    None => return Err("invalid return data".into()),
+                },
+                Err(_) => return Err("invalid return data".into()),
+            }
+        }
+
+        Ok(points)
+    }
+
     fn output<'a>(&'a self) -> Element<'a, Message> {
-        let inner: Element<'_, _> = match &self.executor {
-            Ok(e) => {
-                // let points = (0..100)
-                //     .into_iter()
-                //     .map(|x| (x as f32 * 0.5).sin() + 1.0)
-                //     .collect();
-                let points = (0..100)
-                    .into_iter()
-                    .map(|x| {
-                        let input = x as f64 / 100.0;
-                        match e.execute("main", vec![&input]) {
-                            Ok(value) => match value {
-                                Some(v) => match v {
-                                    bs::data::Value::Data(d) => match d {
-                                        bs::data::DataType::Float(f) => f as f32,
-                                        _ => 0.0
-                                    },
-                                    _ => 0.0,
-                                },
-                                None => 0.0,
-                            },
-                            Err(_) => 0.0,
-                        }
-                    })
-                    .collect::<Vec<_>>();
+        let inner: Element<'_, _> = match self.get_points(0..100, 0.01) {
+            Ok(points) => {
                 let graph = graph::Graph::new(points).scale(0.5);
 
                 graph.into()
@@ -285,13 +297,24 @@ impl Modules {
 
         let files = self.files.clone();
 
-        let run = widget::button(widget::text("RUN"))
-            .on_press(Message::Editor(ModuleMessage::RunModule))
+        let compile = widget::button(widget::text("COMPILE"))
+            .on_press(Message::Editor(ModuleMessage::CompileModule))
             .width(iced::Length::Fill);
+        let test = widget::button(widget::text("TEST"))
+            .on_press(Message::Editor(ModuleMessage::TestModule))
+            .width(iced::Length::Fill);
+
+        let ct = widget::row([
+            compile.into(),
+            widget::horizontal_space()
+                .width(iced::Length::Fixed(5.0))
+                .into(),
+            test.into(),
+        ]);
 
         // let content = widget::list_column().add(save).add(add_module).add(files);
         let content = widget::column([
-            run.into(),
+            ct.into(),
             save.into(),
             add_module.into(),
             widget::vertical_space()

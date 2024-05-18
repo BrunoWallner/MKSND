@@ -1,6 +1,7 @@
 mod graph;
 mod modules;
 mod widgets;
+mod audio;
 
 use iced::{theme::palette, Color, Command, Element, Settings};
 
